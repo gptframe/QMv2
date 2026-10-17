@@ -127,7 +127,6 @@
   const progressCursor = document.querySelector('[data-process-cursor]');
   const stageLive = document.querySelector('[data-stage-live]');
   const stageReadout = document.querySelector('[data-stage-readout]');
-  const aperture = document.querySelector('[data-process-aperture]');
   const routeNodes = gsap.utils.toArray('[data-route-node]');
   const measureLines = gsap.utils.toArray('[data-measure-line]');
   const machineRing = document.querySelector('[data-machine-ring]');
@@ -300,9 +299,7 @@
           { autoAlpha: 1, y: 0, duration: index === 5 ? 0.34 : 0.22, ease: 'power2.out' },
           at - 0.26
         )
-        .set(scenes[index - 1], { autoAlpha: 0 }, at + 0.22)
-        .fromTo(aperture, { scaleY: 0, left: index % 2 ? '34%' : '66%' }, { scaleY: 1, duration: 0.12 }, at - 0.43)
-        .to(aperture, { scaleY: 0, duration: 0.16 }, at - 0.05);
+        .set(scenes[index - 1], { autoAlpha: 0 }, at + 0.22);
     }
 
     journey
