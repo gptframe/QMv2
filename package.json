@@ -4,7 +4,7 @@
   "private": true,
   "description": "Static Quantamorph homepage with local Playwright production-readiness QA.",
   "scripts": {
-    "qa:install": "playwright install chromium",
+    "qa:install": "playwright install chromium webkit",
     "qa": "node scripts/browser_qa.mjs"
   },
   "devDependencies": {

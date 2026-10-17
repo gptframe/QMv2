@@ -1005,6 +1005,70 @@ button { color: inherit; font: inherit; }
 .process-fallback h3 { margin: 12px 0 0; font: 800 clamp(1.8rem, 3vw, 3.2rem)/0.95 var(--font-display); letter-spacing: -0.04em; text-transform: uppercase; }
 .process-fallback p { margin: 16px 0 0; color: var(--muted); }
 
+.process-mobile-ready .process-fallback {
+  grid-template-columns: 1fr;
+  gap: clamp(18px, 3vw, 36px);
+  padding: clamp(12px, 2.5vw, 36px) var(--gutter) clamp(70px, 8vw, 120px);
+  background: #060709;
+}
+
+.process-mobile-ready .process-fallback li {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
+  min-height: min(74svh, 760px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.025), transparent 46%),
+    var(--ink);
+  isolation: isolate;
+  transition: border-color 320ms ease, box-shadow 320ms ease;
+}
+
+.process-mobile-ready .process-fallback li::after {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: var(--red);
+  content: "";
+  transition: width 520ms ease;
+}
+
+.process-mobile-ready .process-fallback li.is-mobile-active {
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+}
+
+.process-mobile-ready .process-fallback li.is-mobile-active::after { width: min(150px, 32%); }
+
+.process-mobile-ready .process-fallback picture {
+  min-width: 0;
+  min-height: clamp(360px, 62svh, 690px);
+  overflow: hidden;
+  background: #0a0b0d;
+}
+
+.process-mobile-ready .process-fallback img {
+  height: 100%;
+  aspect-ratio: auto;
+  object-position: center;
+  backface-visibility: hidden;
+  transform-origin: center;
+}
+
+.process-mobile-ready .process-fallback li > div {
+  align-self: center;
+  padding: clamp(38px, 5vw, 76px);
+}
+
+.process-mobile-ready .process-fallback li:nth-child(even) picture { order: 2; }
+.process-mobile-ready .process-fallback li:nth-child(even) > div { order: 1; }
+.process-mobile-ready .process-fallback h3 { font-size: clamp(2.15rem, 5vw, 4rem); }
+.process-mobile-ready .process-fallback p { max-width: 38rem; line-height: 1.65; }
+
 .capabilities { padding-block: var(--section-y); }
 
 .capability-switcher {
@@ -1419,6 +1483,13 @@ button { color: inherit; font: inherit; }
   .secondary-tile--tool { inset:27% 5% 35% 44%; }
   .secondary-tile--parts { inset:48% 32% 19% 14%; }
   .process-fallback { grid-template-columns:1fr; }
+  .process-mobile-ready .process-fallback { gap: 1px; padding: 1px; background: var(--line); }
+  .process-mobile-ready .process-fallback li { grid-template-columns: 1fr; min-height: 0; border: 0; }
+  .process-mobile-ready .process-fallback li:nth-child(even) picture,
+  .process-mobile-ready .process-fallback li:nth-child(even) > div { order: initial; }
+  .process-mobile-ready .process-fallback picture { min-height: 0; aspect-ratio: 4 / 3; }
+  .process-mobile-ready .process-fallback li > div { padding: clamp(26px, 7vw, 42px) var(--gutter) clamp(42px, 10vw, 66px); }
+  .process-mobile-ready .process-fallback h3 { font-size: clamp(2rem, 9vw, 3.15rem); }
   .capability-tabs { grid-template-columns:1fr; }
   .capability-tabs button { border-right:0; }
   .systems-gallery { min-height:640px; }
@@ -1474,6 +1545,8 @@ button { color: inherit; font: inherit; }
   .process-progress li.is-complete::before { background:var(--red-bright); }
   .process-fallback li > div { padding:23px 20px 31px; }
   .process-fallback h3 { font-size:1.75rem; }
+  .process-mobile-ready .process-fallback li > div { padding: 25px 20px 46px; }
+  .process-mobile-ready .process-fallback h3 { font-size: clamp(2rem, 10vw, 2.8rem); }
   .capability-media { min-height:540px; }
   .capability-caption { right:20px; bottom:24px; left:20px; }
   .capability-caption h3 { font-size:2.1rem; }

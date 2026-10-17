@@ -186,6 +186,7 @@
   const releaseMark = document.querySelector('[data-release-mark]');
   const machiningCanvas = document.querySelector('[data-machining-sequence]');
   const machiningScene = machiningCanvas?.closest('[data-process-scene]');
+  const mobileStages = gsap.utils.toArray('[data-mobile-stage]');
   const stageNames = [
     'Engineering requirement',
     'Material',
@@ -197,7 +198,8 @@
     'Delivery and accountability'
   ];
 
-  const desktopJourney = matchMedia('(min-width: 781px)').matches;
+  const compactJourney = matchMedia('(max-width: 1080px), (hover: none), (pointer: coarse)').matches;
+  const desktopJourney = !compactJourney;
 
   if (desktopJourney && processScroll && processPin && scenes.length === 8 && captions.length === 8) {
     document.documentElement.classList.add('process-cinematic-ready');
@@ -399,5 +401,91 @@
     });
 
     addEventListener('load', () => window.ScrollTrigger.refresh(), { once: true });
+  }
+
+  if (!desktopJourney && processScroll && mobileStages.length === 8) {
+    document.documentElement.classList.add('process-mobile-ready');
+
+    let activeMobileStage = -1;
+    const updateMobileStage = (nextStage) => {
+      if (nextStage === activeMobileStage) return;
+      activeMobileStage = nextStage;
+      mobileStages.forEach((stage, index) => stage.classList.toggle('is-mobile-active', index === nextStage));
+      if (stageLive) {
+        const padded = String(nextStage).padStart(2, '0');
+        stageLive.textContent = `Stage ${padded} of 8: ${stageNames[nextStage]}.`;
+      }
+    };
+
+    mobileStages.forEach((stage, index) => {
+      const media = stage.querySelector('picture');
+      const image = stage.querySelector('img');
+      const copy = stage.querySelector(':scope > div');
+      stage.dataset.mobileStageState = 'ready';
+      gsap.set(stage, { autoAlpha: 0.78, y: 28 });
+      gsap.set(media, { autoAlpha: 0.7, scale: 1.04, force3D: true });
+      gsap.set(copy, { autoAlpha: 0.68, y: 18, force3D: true });
+
+      const reveal = gsap.timeline({
+        paused: true,
+        defaults: { overwrite: 'auto' },
+        onStart: () => { stage.dataset.mobileStageState = 'animating'; },
+        onComplete: () => { stage.dataset.mobileStageState = 'animated'; },
+        onReverseComplete: () => { stage.dataset.mobileStageState = 'ready'; }
+      });
+      reveal
+        .to(stage, { autoAlpha: 1, y: 0, duration: 0.62, ease: 'power2.out' }, 0)
+        .to(media, { autoAlpha: 1, scale: 1, duration: 0.82, ease: 'power2.out' }, 0)
+        .to(copy, { autoAlpha: 1, y: 0, duration: 0.58, ease: 'power2.out' }, 0.08);
+
+      const playReveal = () => {
+        updateMobileStage(index);
+        if (!image || image.complete) {
+          reveal.play();
+          return;
+        }
+        stage.dataset.mobileStageState = 'waiting-for-image';
+        const resume = () => reveal.play();
+        image.addEventListener('load', resume, { once: true });
+        image.addEventListener('error', resume, { once: true });
+      };
+
+      window.ScrollTrigger.create({
+        trigger: stage,
+        start: 'top 88%',
+        end: 'bottom 18%',
+        invalidateOnRefresh: true,
+        onEnter: playReveal,
+        onEnterBack: playReveal,
+        onLeaveBack: () => reveal.reverse()
+      });
+    });
+
+    updateMobileStage(0);
+
+    gsap.from('.process-intro > *', {
+      autoAlpha: 0,
+      y: 26,
+      duration: 0.68,
+      stagger: 0.1,
+      ease: 'power2.out',
+      scrollTrigger: { trigger: '.process-intro', start: 'top 84%', once: true }
+    });
+
+    window.ScrollTrigger.batch('.reveal-item', {
+      start: 'top 92%',
+      once: true,
+      onEnter: (items) => gsap.from(items, {
+        y: 18,
+        duration: 0.54,
+        stagger: 0.055,
+        ease: 'power2.out',
+        overwrite: true
+      })
+    });
+
+    const refreshMobileJourney = () => requestAnimationFrame(() => window.ScrollTrigger.refresh());
+    addEventListener('load', refreshMobileJourney, { once: true });
+    addEventListener('orientationchange', refreshMobileJourney, { passive: true });
   }
 })();
