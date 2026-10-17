@@ -244,6 +244,84 @@ async function setCinematicTime(page, timelineTime) {
   await page.waitForTimeout(1200);
 }
 
+async function exerciseContactMenu(page, { mobile, screenshotPath }) {
+  const result = await page.evaluate(() => {
+    const button = document.querySelector("[data-contact-button]");
+    const panel = document.querySelector("[data-contact-menu]");
+    const email = document.querySelector('[data-contact-method="email"]');
+    const whatsapp = document.querySelector('[data-contact-method="whatsapp"]');
+    return {
+      hasPopup: button?.getAttribute("aria-haspopup"),
+      controls: button?.getAttribute("aria-controls"),
+      panelId: panel?.id,
+      panelRole: panel?.getAttribute("role"),
+      initialExpanded: button?.getAttribute("aria-expanded"),
+      initialHidden: panel?.hidden,
+      emailHref: email?.getAttribute("href"),
+      whatsappHref: whatsapp?.getAttribute("href"),
+      whatsappTarget: whatsapp?.getAttribute("target"),
+      whatsappRel: whatsapp?.getAttribute("rel"),
+    };
+  });
+
+  const openMobileNavigation = async () => {
+    if (!mobile) return;
+    if (await page.getAttribute("[data-menu-button]", "aria-expanded") !== "true") {
+      await page.click("[data-menu-button]");
+    }
+  };
+
+  await openMobileNavigation();
+  await page.focus("[data-contact-button]");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(80);
+  result.opened = await page.evaluate(() => ({
+    expanded: document.querySelector("[data-contact-button]")?.getAttribute("aria-expanded"),
+    hidden: document.querySelector("[data-contact-menu]")?.hidden,
+  }));
+  await page.keyboard.press("Tab");
+  result.firstKeyboardItem = await page.evaluate(() => document.activeElement?.getAttribute("data-contact-method"));
+  await page.keyboard.press("ArrowDown");
+  result.secondKeyboardItem = await page.evaluate(() => document.activeElement?.getAttribute("data-contact-method"));
+  await page.keyboard.press("Escape");
+  result.escapeState = await page.evaluate(() => ({
+    expanded: document.querySelector("[data-contact-button]")?.getAttribute("aria-expanded"),
+    hidden: document.querySelector("[data-contact-menu]")?.hidden,
+    focusReturned: document.activeElement?.hasAttribute("data-contact-button"),
+  }));
+
+  await page.evaluate(() => {
+    window.__contactTestActivations = [];
+    document.querySelectorAll("[data-contact-method]").forEach((link) => {
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        window.__contactTestActivations.push(link.getAttribute("data-contact-method"));
+      }, { once: true });
+    });
+  });
+  for (const method of ["email", "whatsapp"]) {
+    await openMobileNavigation();
+    await page.focus("[data-contact-button]");
+    await page.keyboard.press("Enter");
+    await page.click(`[data-contact-method="${method}"]`);
+  }
+  result.activations = await page.evaluate(() => window.__contactTestActivations);
+
+  await openMobileNavigation();
+  await page.focus("[data-contact-button]");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(80);
+  await page.screenshot({ path: screenshotPath, fullPage: false });
+  await page.evaluate(() => document.querySelector("main")?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  result.outsideClickState = await page.evaluate(() => ({
+    expanded: document.querySelector("[data-contact-button]")?.getAttribute("aria-expanded"),
+    hidden: document.querySelector("[data-contact-menu]")?.hidden,
+    mobileNavigationExpanded: document.querySelector("[data-menu-button]")?.getAttribute("aria-expanded"),
+  }));
+
+  return result;
+}
+
 function assertSharedState(name, state, events) {
   check(state.h1Visible, `${name}: main heading is visible`);
   check(state.primaryCtaVisible, `${name}: primary CTA meets the visible 44px target`);
@@ -375,6 +453,49 @@ try {
       const focusReturned = await page.evaluate(() => document.activeElement?.hasAttribute("data-menu-button"));
       state.mobileMenuKeyboard = { opened, focusMovedIntoMenu, closed, focusReturned };
       check(opened === "true" && focusMovedIntoMenu && closed === "false" && focusReturned, `${name}: mobile menu works with keyboard only`, JSON.stringify(state.mobileMenuKeyboard));
+    }
+
+    if (name === "desktop-1440" || name === "mobile-390") {
+      state.contactMenu = await exerciseContactMenu(page, {
+        mobile: width <= 1080,
+        screenshotPath: path.join(output, `${name}-contact-menu.png`),
+      });
+      const contact = state.contactMenu;
+      check(
+        contact.hasPopup === "menu" && contact.controls === contact.panelId && contact.panelRole === "menu" && contact.initialExpanded === "false" && contact.initialHidden,
+        `${name}: contact disclosure has valid initial ARIA state`,
+        JSON.stringify(contact),
+      );
+      check(
+        contact.emailHref === "mailto:sales@quantamorph.co.uk?subject=Manufacturing%20enquiry%20-%20drawing%20submission",
+        `${name}: email option targets the sales inbox with the manufacturing-enquiry subject`,
+        contact.emailHref || "missing",
+      );
+      check(
+        contact.whatsappHref?.startsWith("https://wa.me/447721131658?text=") && decodeURIComponent(contact.whatsappHref).includes("manufacturing enquiry") && contact.whatsappTarget === "_blank" && contact.whatsappRel?.includes("noopener"),
+        `${name}: WhatsApp option targets the correct number with a professional prefilled message`,
+        contact.whatsappHref || "missing",
+      );
+      check(
+        contact.opened.expanded === "true" && !contact.opened.hidden && contact.firstKeyboardItem === "email" && contact.secondKeyboardItem === "whatsapp",
+        `${name}: contact menu opens and supports keyboard item navigation`,
+        JSON.stringify(contact),
+      );
+      check(
+        contact.escapeState.expanded === "false" && contact.escapeState.hidden && contact.escapeState.focusReturned,
+        `${name}: Escape closes the contact menu and restores focus`,
+        JSON.stringify(contact.escapeState),
+      );
+      check(
+        contact.activations.join(",") === "email,whatsapp",
+        `${name}: both contact links can be activated`,
+        contact.activations.join(","),
+      );
+      check(
+        contact.outsideClickState.expanded === "false" && contact.outsideClickState.hidden && (!width || width > 1080 || contact.outsideClickState.mobileNavigationExpanded === "false"),
+        `${name}: outside click dismisses the contact menu`,
+        JSON.stringify(contact.outsideClickState),
+      );
     }
 
     if (name === "desktop-1440") {
