@@ -2,10 +2,30 @@
   const header = document.querySelector('[data-header]');
   const menuButton = document.querySelector('[data-menu-button]');
   const menu = document.querySelector('[data-menu]');
+  const contact = document.querySelector('[data-contact]');
+  const contactButton = document.querySelector('[data-contact-button]');
+  const contactMenu = document.querySelector('[data-contact-menu]');
+  const contactItems = [...document.querySelectorAll('[data-contact-menu] [role="menuitem"]')];
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const closeContactMenu = (returnFocus = false) => {
+    if (!contactButton || !contactMenu) return;
+    contactButton.setAttribute('aria-expanded', 'false');
+    contactMenu.hidden = true;
+    if (returnFocus) contactButton.focus();
+  };
+
+  const openContactMenu = (focusTarget = null) => {
+    if (!contactButton || !contactMenu) return;
+    contactButton.setAttribute('aria-expanded', 'true');
+    contactMenu.hidden = false;
+    if (focusTarget === 'first') contactItems[0]?.focus();
+    if (focusTarget === 'last') contactItems[contactItems.length - 1]?.focus();
+  };
 
   const closeMenu = (returnFocus = false) => {
     if (!menuButton || !menu) return;
+    closeContactMenu();
     menuButton.setAttribute('aria-expanded', 'false');
     menu.classList.remove('is-open');
     if (returnFocus) menuButton.focus();
@@ -17,16 +37,47 @@
     menu?.classList.toggle('is-open', willOpen);
   });
 
+  contactButton?.addEventListener('click', () => {
+    const willOpen = contactButton.getAttribute('aria-expanded') !== 'true';
+    if (willOpen) openContactMenu();
+    else closeContactMenu();
+  });
+
+  contactButton?.addEventListener('keydown', (event) => {
+    if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+    event.preventDefault();
+    openContactMenu(event.key === 'ArrowUp' ? 'last' : 'first');
+  });
+
+  contactMenu?.addEventListener('keydown', (event) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const currentIndex = contactItems.indexOf(document.activeElement);
+    if (currentIndex < 0) return;
+    event.preventDefault();
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % contactItems.length;
+    if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + contactItems.length) % contactItems.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = contactItems.length - 1;
+    contactItems[nextIndex]?.focus();
+  });
+
   menu?.addEventListener('click', (event) => {
     if (event.target.closest('a')) closeMenu();
   });
 
   document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && contactButton?.getAttribute('aria-expanded') === 'true') {
+      event.preventDefault();
+      closeContactMenu(true);
+      return;
+    }
+
     if (menuButton?.getAttribute('aria-expanded') !== 'true') return;
     if (event.key === 'Escape') closeMenu(true);
     if (event.key !== 'Tab' || !menu) return;
 
-    const focusable = [menuButton, ...menu.querySelectorAll('a[href]')].filter(Boolean);
+    const focusable = [menuButton, ...menu.querySelectorAll('a[href], button:not([disabled])')].filter((element) => !element.closest('[hidden]'));
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
     if (event.shiftKey && document.activeElement === first) {
@@ -39,6 +90,7 @@
   });
 
   document.addEventListener('click', (event) => {
+    if (contactButton?.getAttribute('aria-expanded') === 'true' && !contact?.contains(event.target)) closeContactMenu();
     if (!menu?.classList.contains('is-open')) return;
     if (!menu.contains(event.target) && !menuButton?.contains(event.target)) closeMenu();
   });
