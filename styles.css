@@ -568,8 +568,7 @@ button { color: inherit; font: inherit; }
 .process-carrier b { inset: 49%; border: 3px solid var(--red-bright); border-radius: 50%; box-shadow: 0 0 24px rgba(255,98,108,.5); }
 
 .process-shade,
-.process-grid-overlay,
-.process-aperture {
+.process-grid-overlay {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -590,17 +589,6 @@ button { color: inherit; font: inherit; }
     linear-gradient(90deg, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
   background-size: 92px 92px;
   mask-image: linear-gradient(90deg, black, transparent 52%);
-}
-
-.process-aperture {
-  z-index: 6;
-  left: 48%;
-  right: auto;
-  width: 1px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 0 38px rgba(255, 255, 255, 0.2);
-  transform: scaleY(0);
-  transform-origin: center;
 }
 
 .process-topline {
