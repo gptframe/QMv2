@@ -1508,6 +1508,87 @@ button { color: inherit; font: inherit; }
   .footer-grid > div:nth-child(4) { grid-column:auto; }
 }
 
+/* Touch-first manufacturing journey. Unlike desktop GSAP pinning, a CSS-sticky
+   canvas keeps native touch scrolling and lets the eight existing scene assets
+   crossfade without loading the 32-frame machining sequence. */
+.process-cinematic-mobile .process-scroll {
+  height: 760vh;
+  height: 760svh;
+}
+
+.process-cinematic-mobile .process-pin {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  min-height: 0;
+}
+
+.process-cinematic-mobile .process-scene > picture,
+.process-cinematic-mobile .machining-sequence {
+  top: 38%;
+  right: 50%;
+  width: min(76vw, 62svh, 680px);
+  transform: translate(50%, -50%);
+}
+
+.process-cinematic-mobile .process-carrier {
+  top: 38%;
+  right: 50%;
+  width: min(76vw, 62svh, 680px);
+  transform: translate(50%, -50%);
+}
+
+.process-cinematic-mobile .process-captions {
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: clamp(94px, 12svh, 135px);
+  width: auto;
+}
+
+.process-cinematic-mobile .process-caption h3 {
+  font-size: clamp(2.2rem, 7.8vw, 4.1rem);
+}
+
+.process-cinematic-mobile .process-topline {
+  top: calc(var(--header-h) + 12px);
+}
+
+.process-cinematic-mobile .process-progress-wrap {
+  bottom: clamp(17px, 3svh, 30px);
+}
+
+.process-cinematic-mobile .process-progress li,
+.process-cinematic-mobile .process-progress li:last-child {
+  justify-content: center;
+}
+
+.process-cinematic-mobile .process-progress li span,
+.process-cinematic-mobile .machining-sequence,
+.process-cinematic-mobile .machine-ring,
+.process-cinematic-mobile .route-orbit,
+.process-cinematic-mobile .inspection-reticle,
+.process-cinematic-mobile .measure-line,
+.process-cinematic-mobile .release-mark {
+  display: none;
+}
+
+@media (max-height: 700px) {
+  .process-cinematic-mobile .process-scene > picture,
+  .process-cinematic-mobile .process-carrier {
+    top: 32%;
+    width: min(76vw, 56svh, 580px);
+  }
+}
+
+@media (min-width: 600px) and (max-height: 850px) {
+  .process-cinematic-mobile .process-scene > picture,
+  .process-cinematic-mobile .process-carrier {
+    top: 33%;
+    width: min(64vw, 55svh, 620px);
+  }
+}
+
 @media (forced-colors: active) {
   .hero h1 em,
   .final-cta h2 em { color: CanvasText; -webkit-text-stroke: 0; }
