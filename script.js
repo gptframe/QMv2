@@ -197,12 +197,17 @@
     'Delivery and accountability'
   ];
 
-  const desktopJourney = matchMedia('(min-width: 781px)').matches;
+  // Touch devices (including iPads) use the lighter CSS-sticky cinematic route.
+  const mobileJourney = matchMedia('(max-width: 1100px), (pointer: coarse)').matches;
+  const desktopJourney = !mobileJourney;
 
-  if (desktopJourney && processScroll && processPin && scenes.length === 8 && captions.length === 8) {
+  if (processScroll && processPin && scenes.length === 8 && captions.length === 8) {
     document.documentElement.classList.add('process-cinematic-ready');
-    gsap.set(scenes, { autoAlpha: 0, scale: 1.028, clipPath: 'circle(82% at 72% 50%)' });
-    gsap.set(scenes[0], { autoAlpha: 1, scale: 1.005 });
+    if (mobileJourney) document.documentElement.classList.add('process-cinematic-mobile');
+    gsap.set(scenes, mobileJourney
+      ? { autoAlpha: 0, scale: 1 }
+      : { autoAlpha: 0, scale: 1.028, clipPath: 'circle(82% at 72% 50%)' });
+    gsap.set(scenes[0], { autoAlpha: 1, scale: mobileJourney ? 1 : 1.005 });
     gsap.set(captions, { autoAlpha: 0, y: 30 });
     gsap.set(captions[0], { autoAlpha: 1, y: 0 });
     gsap.set(routeNodes, { autoAlpha: 0, y: 18 });
@@ -228,19 +233,23 @@
       defaults: { ease: 'none' },
       scrollTrigger: {
         trigger: processScroll,
-        start: 'top top',
-        end: () => `+=${Math.max(innerHeight * 6.2, 4400)}`,
-        pin: processPin,
-        pinSpacing: true,
-        scrub: 0.72,
-        anticipatePin: 1,
+        start: mobileJourney
+          ? () => processScroll.getBoundingClientRect().top + window.scrollY
+          : 'top top',
+        end: mobileJourney
+          ? () => processScroll.getBoundingClientRect().top + window.scrollY + processScroll.offsetHeight - innerHeight
+          : () => `+=${Math.max(innerHeight * 6.2, 4400)}`,
+        pin: desktopJourney ? processPin : false,
+        pinSpacing: desktopJourney,
+        scrub: mobileJourney ? 0.35 : 0.72,
+        anticipatePin: desktopJourney ? 1 : 0,
         invalidateOnRefresh: true,
         onUpdate: (self) => updateStage(Math.min(7, Math.floor(self.progress * 8)))
       }
     });
 
     const machiningSequence = (() => {
-      if (!machiningCanvas || !machiningScene) return null;
+      if (mobileJourney || !machiningCanvas || !machiningScene) return null;
       const frameCount = Number(machiningCanvas.dataset.frameCount) || 32;
       const tier = innerWidth >= 1280 ? 1536 : 960;
       const context = machiningCanvas.getContext('2d', { alpha: false });
@@ -327,12 +336,14 @@
     journey.to(scenes[0], { scale: 1.018, duration: 0.72 }, 0);
     journey.to(progressFill, { scaleX: 1, duration: 7.8 }, 0);
     journey.to(progressCursor, { left: '100%', duration: 7.8 }, 0);
-    const machiningFrame = { value: 0 };
-    journey.to(machiningFrame, {
-      value: 31,
-      duration: 0.86,
-      onUpdate: () => machiningSequence?.setFrame(machiningFrame.value)
-    }, 2.60);
+    if (desktopJourney) {
+      const machiningFrame = { value: 0 };
+      journey.to(machiningFrame, {
+        value: 31,
+        duration: 0.86,
+        onUpdate: () => machiningSequence?.setFrame(machiningFrame.value)
+      }, 2.60);
+    }
 
     for (let index = 1; index < scenes.length; index += 1) {
       const at = index;
@@ -341,8 +352,12 @@
         .to(scenes[index - 1], { autoAlpha: 0.12, scale: 0.992, duration: 0.66 }, at - 0.46)
         .fromTo(
           scenes[index],
-          { autoAlpha: 0, scale: index === 5 ? 1.018 : 1.035, clipPath: 'circle(7% at 72% 50%)' },
-          { autoAlpha: 1, scale: 1.005, clipPath: 'circle(82% at 72% 50%)', duration: index === 5 ? 0.98 : 0.76 },
+          mobileJourney
+            ? { autoAlpha: 0, scale: 1.015 }
+            : { autoAlpha: 0, scale: index === 5 ? 1.018 : 1.035, clipPath: 'circle(7% at 72% 50%)' },
+          mobileJourney
+            ? { autoAlpha: 1, scale: 1, duration: 0.68 }
+            : { autoAlpha: 1, scale: 1.005, clipPath: 'circle(82% at 72% 50%)', duration: index === 5 ? 0.98 : 0.76 },
           at - 0.42
         )
         .fromTo(
@@ -399,5 +414,10 @@
     });
 
     addEventListener('load', () => window.ScrollTrigger.refresh(), { once: true });
+    if (mobileJourney) {
+      addEventListener('orientationchange', () => {
+        requestAnimationFrame(() => window.ScrollTrigger.refresh());
+      }, { passive: true });
+    }
   }
 })();

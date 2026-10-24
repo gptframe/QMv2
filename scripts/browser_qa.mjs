@@ -24,6 +24,7 @@ const viewports = [
   ["desktop-1920", 1920, 1080],
   ["desktop-1440", 1440, 900],
   ["desktop-1024", 1024, 768],
+  ["tablet-820", 820, 1180],
   ["boundary-780", 780, 900],
   ["tablet-768", 768, 1024],
   ["mobile-430", 430, 932],
@@ -56,6 +57,19 @@ function observePage(page) {
     }
   });
   return events;
+}
+
+async function monitorLayoutStability(page) {
+  await page.addInitScript(() => {
+    window.__qaLayoutShift = 0;
+    if (!window.PerformanceObserver?.supportedEntryTypes?.includes("layout-shift")) return;
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (!entry.hadRecentInput) window.__qaLayoutShift += entry.value;
+      }
+    });
+    observer.observe({ type: "layout-shift", buffered: true });
+  });
 }
 
 async function startStaticServer() {
@@ -212,7 +226,9 @@ async function inspectPage(page, options) {
       scrollTriggerAvailable: Boolean(window.ScrollTrigger),
       motionReady: document.documentElement.classList.contains("motion-ready"),
       cinematicReady: document.documentElement.classList.contains("process-cinematic-ready"),
+      mobileCinematic: document.documentElement.classList.contains("process-cinematic-mobile"),
       processPinDisplay: getComputedStyle(document.querySelector("[data-process-pin]")).display,
+      processPinPosition: getComputedStyle(document.querySelector("[data-process-pin]")).position,
       fallbackDisplay: getComputedStyle(fallback).display,
       fallbackVisible: visible(fallback),
       fallbackItems: fallbackItems.length,
@@ -242,6 +258,83 @@ async function setCinematicTime(page, timelineTime) {
     scrollTo(0, trigger.start + (trigger.end - trigger.start) * (time / journeyDuration));
   }, timelineTime);
   await page.waitForTimeout(1200);
+}
+
+async function exerciseMobileCinematic(page, { name, screenshotStages = [] }) {
+  const initial = await page.evaluate(() => {
+    const trigger = window.ScrollTrigger?.getAll().find((candidate) => candidate.trigger?.matches?.("[data-process-scroll]"));
+    const processScroll = document.querySelector("[data-process-scroll]");
+    const processPin = document.querySelector("[data-process-pin]");
+    return {
+      ready: document.documentElement.classList.contains("process-cinematic-ready"),
+      mobile: document.documentElement.classList.contains("process-cinematic-mobile"),
+      triggerCount: window.ScrollTrigger?.getAll().filter((candidate) => candidate.trigger?.matches?.("[data-process-scroll]")).length || 0,
+      triggerPinned: Boolean(trigger?.pin),
+      triggerStart: trigger?.start,
+      triggerEnd: trigger?.end,
+      processHeight: processScroll?.getBoundingClientRect().height,
+      pinPosition: processPin ? getComputedStyle(processPin).position : "",
+      sequenceStatus: document.querySelector("[data-machining-sequence]")?.dataset.sequenceStatus || "",
+    };
+  });
+
+  const stages = [];
+  for (let index = 0; index < 8; index += 1) {
+    const progress = (index + 0.5) / 8;
+    await page.evaluate((nextProgress) => {
+      const trigger = window.ScrollTrigger?.getAll().find((candidate) => candidate.trigger?.matches?.("[data-process-scroll]"));
+      if (!trigger) throw new Error("Manufacturing ScrollTrigger was not found");
+      scrollTo(0, trigger.start + (trigger.end - trigger.start) * nextProgress);
+    }, progress);
+    await page.waitForTimeout(700);
+
+    const stage = await page.evaluate((expectedIndex) => {
+      const scenes = [...document.querySelectorAll("[data-process-scene]")];
+      const captions = [...document.querySelectorAll("[data-process-caption]")];
+      const steps = [...document.querySelectorAll("[data-process-step]")];
+      const trigger = window.ScrollTrigger?.getAll().find((candidate) => candidate.trigger?.matches?.("[data-process-scroll]"));
+      const pin = document.querySelector("[data-process-pin]");
+      const activeStepIndex = steps.findIndex((step) => step.classList.contains("is-active"));
+      const visibleSceneIndex = scenes.reduce((best, scene, sceneIndex) => {
+        const opacity = Number(getComputedStyle(scene).opacity);
+        return opacity > best.opacity ? { index: sceneIndex, opacity } : best;
+      }, { index: -1, opacity: -1 });
+      const visibleCaptionIndex = captions.reduce((best, caption, captionIndex) => {
+        const opacity = Number(getComputedStyle(caption).opacity);
+        return opacity > best.opacity ? { index: captionIndex, opacity } : best;
+      }, { index: -1, opacity: -1 });
+      const image = scenes[expectedIndex]?.querySelector("img");
+      const captionRect = captions[expectedIndex]?.getBoundingClientRect();
+      const pinRect = pin?.getBoundingClientRect();
+      return {
+        expectedIndex,
+        activeStepIndex,
+        visibleSceneIndex: visibleSceneIndex.index,
+        visibleSceneOpacity: visibleSceneIndex.opacity,
+        visibleCaptionIndex: visibleCaptionIndex.index,
+        visibleCaptionOpacity: visibleCaptionIndex.opacity,
+        animationProgress: trigger?.animation?.progress(),
+        scrollY,
+        imageLoaded: Boolean(image?.complete && image.naturalWidth > 0),
+        imageCurrentSrc: image?.currentSrc || "",
+        pinTop: pinRect ? Math.round(pinRect.top) : null,
+        pinWithinViewport: Boolean(pinRect && pinRect.left >= -1 && pinRect.right <= document.documentElement.clientWidth + 1),
+        captionWithinViewport: Boolean(captionRect && captionRect.left >= -1 && captionRect.right <= document.documentElement.clientWidth + 1),
+        horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      };
+    }, index);
+    stages.push(stage);
+
+    if (screenshotStages.includes(index)) {
+      await page.screenshot({ path: path.join(output, `${name}-cinematic-stage-${index}.png`), fullPage: false });
+    }
+  }
+
+  return {
+    initial,
+    stages,
+    layoutShift: await page.evaluate(() => Number(window.__qaLayoutShift || 0)),
+  };
 }
 
 async function exerciseContactMenu(page, { mobile, screenshotPath }) {
@@ -411,17 +504,32 @@ try {
 
   for (const [name, width, height] of viewports) {
     console.log(`Running ${name} (${width}x${height})...`);
-    const context = await browser.newContext({ viewport: { width, height } });
+    const compactViewport = width <= 1100;
+    const context = await browser.newContext({
+      viewport: { width, height },
+      hasTouch: compactViewport,
+      isMobile: width <= 430,
+      deviceScaleFactor: compactViewport ? 2 : 1,
+    });
     const page = await context.newPage();
     const events = observePage(page);
+    await monitorLayoutStability(page);
     await page.goto(target.url, { waitUntil: "networkidle", timeout: 30000 });
     await page.waitForTimeout(250);
+    const mobileCinematic = compactViewport
+      ? await exerciseMobileCinematic(page, {
+        name,
+        screenshotStages: name === "mobile-390" ? [0, 3, 7] : name === "tablet-820" ? [1, 4, 7] : [],
+      })
+      : null;
     const state = await inspectPage(page);
+    state.mobileCinematicState = mobileCinematic;
     state.imageAssetFailures = await verifyDeclaredImageAssets(page);
 
     check(state.gsapAvailable && state.scrollTriggerAvailable, `${name}: local GSAP and ScrollTrigger are available`);
-    if (width > 780) {
+    if (!compactViewport) {
       check(state.cinematicReady, `${name}: manufacturing cinematic is active`);
+      check(!state.mobileCinematic, `${name}: touch-specific cinematic mode is inactive`);
       check(state.processPinDisplay !== "none", `${name}: cinematic pin is displayed`);
       check(!state.fallbackVisible, `${name}: stacked fallback is hidden while the cinematic is active`);
       await page.waitForFunction(
@@ -436,10 +544,41 @@ try {
       check(state.sequence.status === "complete" && state.sequence.loadedFrames === "32", `${name}: all machining frames load after activation`, JSON.stringify(state.sequence));
       check(state.sequence.tier === (width >= 1280 ? "1536" : "960"), `${name}: responsive sequence tier is correct`, JSON.stringify(state.sequence));
     } else {
-      check(!state.cinematicReady, `${name}: manufacturing cinematic is disabled at 780px and below`);
-      check(state.processPinDisplay === "none", `${name}: cinematic pin is hidden at 780px and below`);
-      check(state.fallbackVisible && state.fallbackItems === 8 && state.visibleFallbackItems === 8, `${name}: complete stacked route is visible`, `${state.visibleFallbackItems}/${state.fallbackItems}`);
-      check(events.sequenceRequests.length === 0, `${name}: mobile route makes no machining-sequence requests`, `${events.sequenceRequests.length} requests`);
+      check(state.cinematicReady && state.mobileCinematic, `${name}: touch-first cinematic manufacturing route is active`);
+      check(state.processPinDisplay !== "none" && state.processPinPosition === "sticky", `${name}: process panel uses CSS sticky positioning`, `${state.processPinDisplay}/${state.processPinPosition}`);
+      check(!state.fallbackVisible, `${name}: static fallback is hidden while the touch cinematic is active`);
+      check(
+        mobileCinematic.initial.ready && mobileCinematic.initial.mobile && mobileCinematic.initial.triggerCount === 1 && !mobileCinematic.initial.triggerPinned && mobileCinematic.initial.pinPosition === "sticky",
+        `${name}: mobile journey initialises one unpinned ScrollTrigger with a sticky canvas`,
+        JSON.stringify(mobileCinematic.initial),
+      );
+      check(
+        mobileCinematic.initial.processHeight >= height * 7.4 && mobileCinematic.initial.triggerEnd > mobileCinematic.initial.triggerStart,
+        `${name}: mobile route provides sufficient native scroll distance`,
+        JSON.stringify(mobileCinematic.initial),
+      );
+      check(
+        mobileCinematic.stages.length === 8 && mobileCinematic.stages.every((stage, index) => stage.activeStepIndex === index && stage.visibleSceneIndex === index && stage.visibleCaptionIndex === index),
+        `${name}: all eight manufacturing stages become active in sequence`,
+        JSON.stringify(mobileCinematic.stages),
+      );
+      check(
+        mobileCinematic.stages.every((stage) => stage.visibleSceneOpacity > 0.8 && stage.visibleCaptionOpacity > 0.8 && stage.imageLoaded),
+        `${name}: every stage completes its image and caption transition`,
+        JSON.stringify(mobileCinematic.stages),
+      );
+      check(
+        mobileCinematic.stages.every((stage) => stage.pinWithinViewport && stage.captionWithinViewport && !stage.horizontalOverflow),
+        `${name}: animated stages remain within the viewport without horizontal overflow`,
+        JSON.stringify(mobileCinematic.stages),
+      );
+      check(
+        mobileCinematic.stages.at(-1).scrollY > mobileCinematic.stages[0].scrollY + height * 5,
+        `${name}: stage progression preserves natural document scrolling`,
+        `${mobileCinematic.stages[0].scrollY} -> ${mobileCinematic.stages.at(-1).scrollY}`,
+      );
+      check(mobileCinematic.layoutShift < 0.1, `${name}: animated route avoids material layout shift`, String(mobileCinematic.layoutShift));
+      check(mobileCinematic.initial.sequenceStatus === "" && events.sequenceRequests.length === 0, `${name}: touch route does not initialise or request the machining sequence`, `${events.sequenceRequests.length} requests`);
     }
 
     if (width <= 1080) {
@@ -546,14 +685,13 @@ try {
     }
 
     if (name === "mobile-390") {
-      const stageTop = await page.evaluate(() => {
-        const stage = document.querySelectorAll(".process-fallback > li")[3];
-        return stage.getBoundingClientRect().top + scrollY;
+      await page.evaluate(() => {
+        const trigger = window.ScrollTrigger?.getAll().find((candidate) => candidate.trigger?.matches?.("[data-process-scroll]"));
+        scrollTo(0, trigger.start + (trigger.end - trigger.start) * (3.5 / 8));
       });
-      await page.evaluate((top) => scrollTo(0, top - 68), stageTop);
-      await page.waitForTimeout(250);
+      await page.waitForTimeout(700);
       await page.screenshot({ path: path.join(output, "mobile-390-process.png"), fullPage: false });
-      await page.screenshot({ path: path.join(evidenceOutput, "mobile-stacked-route.png"), fullPage: false });
+      await page.screenshot({ path: path.join(evidenceOutput, "mobile-sticky-route.png"), fullPage: false });
     }
 
     await page.evaluate(() => scrollTo(0, 0));
@@ -569,13 +707,19 @@ try {
   }
 
   console.log("Running reduced-motion...");
-  const reducedContext = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  const reducedContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    deviceScaleFactor: 2,
+    reducedMotion: "reduce",
+  });
   const reducedPage = await reducedContext.newPage();
   const reducedEvents = observePage(reducedPage);
   await reducedPage.goto(target.url, { waitUntil: "networkidle", timeout: 30000 });
   const reduced = await inspectPage(reducedPage);
   reduced.imageAssetFailures = await verifyDeclaredImageAssets(reducedPage);
-  check(!reduced.motionReady && !reduced.cinematicReady, "reduced-motion: cinematic enhancement is disabled");
+  check(!reduced.motionReady && !reduced.cinematicReady && !reduced.mobileCinematic, "reduced-motion: cinematic enhancement is disabled on mobile");
   check(reduced.processPinDisplay === "none", "reduced-motion: cinematic pin is hidden");
   check(reduced.fallbackVisible && reduced.fallbackItems === 8 && reduced.visibleFallbackItems === 8, "reduced-motion: complete stacked route is visible", `${reduced.visibleFallbackItems}/${reduced.fallbackItems}`);
   check(reducedEvents.sequenceRequests.length === 0, "reduced-motion: no machining-sequence requests are made", `${reducedEvents.sequenceRequests.length} requests`);
@@ -629,6 +773,125 @@ try {
   report.push({ name: "sequence-failure-fallback", ...failureFallback });
   await failureContext.close();
   console.log("Completed machining-sequence failure fallback.");
+
+  console.log("Running touch-scroll probe...");
+  const touchContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    deviceScaleFactor: 2,
+  });
+  const touchPage = await touchContext.newPage();
+  const touchEvents = observePage(touchPage);
+  await touchPage.goto(target.url, { waitUntil: "networkidle", timeout: 30000 });
+  const touchBefore = await touchPage.evaluate(() => ({
+    scrollY,
+    touchAction: getComputedStyle(document.documentElement).touchAction,
+    mobileCinematic: document.documentElement.classList.contains("process-cinematic-mobile"),
+  }));
+  const cdp = await touchContext.newCDPSession(touchPage);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 195, y: 720, radiusX: 4, radiusY: 4 }] });
+  for (const y of [630, 535, 440, 345, 250, 155]) {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 195, y, radiusX: 4, radiusY: 4 }] });
+    await touchPage.waitForTimeout(16);
+  }
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await touchPage.waitForTimeout(500);
+  const touchAfter = await touchPage.evaluate(() => ({ scrollY, maxScroll: document.documentElement.scrollHeight - innerHeight }));
+  check(touchBefore.mobileCinematic && touchAfter.scrollY > touchBefore.scrollY + 80, "touch: vertical swipe preserves native page scrolling", JSON.stringify({ touchBefore, touchAfter }));
+  check(touchBefore.touchAction !== "none", "touch: document does not disable native touch gestures", touchBefore.touchAction);
+  check(touchEvents.sequenceRequests.length === 0, "touch: initial swipe does not request machining frames", `${touchEvents.sequenceRequests.length} requests`);
+  check(touchEvents.consoleErrors.length === 0 && touchEvents.pageErrors.length === 0, "touch: no console or page errors", JSON.stringify(touchEvents));
+  report.push({ name: "touch-scroll", touchBefore, touchAfter, ...touchEvents });
+  await touchContext.close();
+  console.log("Completed touch-scroll probe.");
+
+  console.log("Running iPad orientation probe...");
+  const orientationContext = await browser.newContext({
+    viewport: { width: 820, height: 1180 },
+    hasTouch: true,
+    isMobile: true,
+    deviceScaleFactor: 2,
+  });
+  const orientationPage = await orientationContext.newPage();
+  const orientationEvents = observePage(orientationPage);
+  await orientationPage.goto(target.url, { waitUntil: "networkidle", timeout: 30000 });
+  await orientationPage.evaluate(() => {
+    const trigger = window.ScrollTrigger?.getAll().find((candidate) => candidate.trigger?.matches?.("[data-process-scroll]"));
+    scrollTo(0, trigger.start + (trigger.end - trigger.start) * (2.5 / 8));
+  });
+  await orientationPage.waitForTimeout(1200);
+  const readOrientationState = () => orientationPage.evaluate(() => {
+    const trigger = window.ScrollTrigger?.getAll().find((candidate) => candidate.trigger?.matches?.("[data-process-scroll]"));
+    const steps = [...document.querySelectorAll("[data-process-step]")];
+    const activeStage = steps.findIndex((step) => step.classList.contains("is-active"));
+    const sceneOpacities = [...document.querySelectorAll("[data-process-scene]")].map((scene) => Number(getComputedStyle(scene).opacity));
+    const visibleScene = sceneOpacities.indexOf(Math.max(...sceneOpacities));
+    const captionOpacities = [...document.querySelectorAll("[data-process-caption]")].map((caption) => Number(getComputedStyle(caption).opacity));
+    const visibleCaption = captionOpacities.indexOf(Math.max(...captionOpacities));
+    const image = document.querySelectorAll("[data-process-scene]")[visibleScene]?.querySelector("img");
+    const pin = document.querySelector("[data-process-pin]");
+    const pinRect = pin.getBoundingClientRect();
+    return {
+      viewport: [innerWidth, innerHeight],
+      mobileCinematic: document.documentElement.classList.contains("process-cinematic-mobile"),
+      pinPosition: getComputedStyle(pin).position,
+      triggerPinned: Boolean(trigger?.pin),
+      activeStage,
+      visibleScene,
+      visibleSceneOpacity: sceneOpacities[visibleScene],
+      visibleCaption,
+      visibleCaptionOpacity: captionOpacities[visibleCaption],
+      imageLoaded: Boolean(image?.complete && image.naturalWidth > 0),
+      pinTop: Math.round(pinRect.top),
+      scrollY: Math.round(scrollY),
+      triggerStart: Math.round(trigger?.start || 0),
+      triggerEnd: Math.round(trigger?.end || 0),
+      triggerProgress: trigger?.progress,
+      processTop: Math.round(trigger?.trigger?.getBoundingClientRect().top || 0),
+      processHeight: Math.round(trigger?.trigger?.getBoundingClientRect().height || 0),
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      sequenceStatus: document.querySelector("[data-machining-sequence]")?.dataset.sequenceStatus || "",
+    };
+  });
+  const portraitState = await readOrientationState();
+  await orientationPage.setViewportSize({ width: 1180, height: 820 });
+  await orientationPage.evaluate(() => dispatchEvent(new Event("orientationchange")));
+  await orientationPage.waitForTimeout(1200);
+  await orientationPage.evaluate(() => {
+    const trigger = window.ScrollTrigger?.getAll().find((candidate) => candidate.trigger?.matches?.("[data-process-scroll]"));
+    scrollTo(0, trigger.start + (trigger.end - trigger.start) * (5.5 / 8));
+  });
+  await orientationPage.waitForTimeout(1200);
+  const landscapeState = await readOrientationState();
+  await orientationPage.screenshot({ path: path.join(output, "ipad-landscape-journey.png"), fullPage: false });
+  check(portraitState.mobileCinematic && landscapeState.mobileCinematic, "orientation: touch cinematic survives iPad portrait-to-landscape rotation", JSON.stringify({ portraitState, landscapeState }));
+  check(
+    portraitState.pinPosition === "sticky" && landscapeState.pinPosition === "sticky"
+      && !portraitState.triggerPinned && !landscapeState.triggerPinned
+      && Math.abs(portraitState.pinTop) <= 1 && Math.abs(landscapeState.pinTop) <= 1,
+    "orientation: rotation preserves sticky native-scroll behavior",
+    JSON.stringify({ portraitState, landscapeState }),
+  );
+  check(
+    portraitState.activeStage >= 1 && portraitState.activeStage === portraitState.visibleScene && portraitState.activeStage === portraitState.visibleCaption
+      && landscapeState.activeStage >= 5 && landscapeState.activeStage === landscapeState.visibleScene && landscapeState.activeStage === landscapeState.visibleCaption
+      && landscapeState.activeStage > portraitState.activeStage,
+    "orientation: stage transitions remain synchronized and advance after rotation",
+    JSON.stringify({ portraitState, landscapeState }),
+  );
+  check(
+    portraitState.visibleSceneOpacity > 0.8 && portraitState.visibleCaptionOpacity > 0.8 && portraitState.imageLoaded
+      && landscapeState.visibleSceneOpacity > 0.8 && landscapeState.visibleCaptionOpacity > 0.8 && landscapeState.imageLoaded,
+    "orientation: image and caption transitions settle in portrait and landscape",
+    JSON.stringify({ portraitState, landscapeState }),
+  );
+  check(!portraitState.overflow && !landscapeState.overflow, "orientation: portrait and landscape avoid horizontal overflow", JSON.stringify({ portraitState, landscapeState }));
+  check(portraitState.sequenceStatus === "" && landscapeState.sequenceStatus === "" && orientationEvents.sequenceRequests.length === 0, "orientation: iPad route never initialises machining frames", `${orientationEvents.sequenceRequests.length} requests`);
+  check(orientationEvents.consoleErrors.length === 0 && orientationEvents.pageErrors.length === 0, "orientation: no console or page errors", JSON.stringify(orientationEvents));
+  report.push({ name: "ipad-orientation", portraitState, landscapeState, ...orientationEvents });
+  await orientationContext.close();
+  console.log("Completed iPad orientation probe.");
 
   const result = {
     generatedAt: new Date().toISOString(),
